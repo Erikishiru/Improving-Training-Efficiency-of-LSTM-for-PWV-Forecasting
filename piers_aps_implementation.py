@@ -44,7 +44,7 @@ def load_obj(name):
   with open(name + '.pkl', 'rb') as f:
     return pickle.load(f)
 
-data_file = '~/Documents/piers/pwvComplete5yr'
+data_file = '~/Documents/piers/data/pwvComplete5yr'
 pwvComplete = load_obj(data_file) # Dictionary with year numbers as keys and numpy arrays ([day, hour, min, pwv]) as values
 
 """**Pre-process Data**"""
