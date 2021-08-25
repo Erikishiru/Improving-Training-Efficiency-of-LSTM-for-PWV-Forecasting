@@ -7,11 +7,11 @@ This repository contains the work for "Improving Training Efficiency of LSTM for
 # Dependencies
 
 ```
-tensorflow vs. 1.4
 numpy
+json (included)
 pickle (included)
-os (included)
-a lot of other crap
+matplotlib
+tensorflow
 ```
 
 # Constants
