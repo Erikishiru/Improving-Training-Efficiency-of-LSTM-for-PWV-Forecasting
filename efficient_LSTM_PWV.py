@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
 """**Description**
 
-LSTM implementation with PWV dataset
+Custom LSTM implementation with PWV dataset
 Lead time of 1 step in the future
-Without Custom Loss with l=0
+With Custom Loss  with l=0.05, k=10
 """
 
 """# **Import Required Libraries**"""
@@ -23,7 +22,7 @@ import tensorflow.keras.backend as K
 
 """### Defining constants"""
 
-NAME = 'vanilla_lstm_sequential_1step' #name of the python file for logging
+NAME = 'custom_lstm_2month_1step_v2' #name of the python file for logging
 
 data_history = 47 #past data to be considered for a window
 
@@ -160,6 +159,12 @@ dataX, dataY = makeWindowsFromContinuousSet(continuous_years[continuous_years ==
 print(len(dataX), dataX[0].shape)
 print(len(dataY), dataY[0].shape)
 
+dataX = dataX[0 : 8640*2]
+dataY = dataY[0 : 8640*2]
+
+print(len(dataX), dataX[0].shape)
+print(len(dataY), dataY[0].shape)
+
 train_split = data_split
 split_time = int(train_split*len(dataY))
 trainX = dataX[:split_time]
@@ -174,8 +179,8 @@ testYpwv  = np.array(extractPWVonly(testY))
 print(trainXpwv.shape, trainYpwv.shape, testXpwv.shape, testYpwv.shape)
 
 plt.figure(figsize=(20, 12))
-time = np.arange(16000,17000)
-plt.plot(continuous_pwv)
+time = np.arange(0,8000)
+plt.plot(continuous_pwv[time])
 plt.xlabel("Time")
 plt.ylabel("Value")
 plt.grid(True)
@@ -198,36 +203,119 @@ def reshape_feature_data(trainX, testX):
 
 trainXpwv_reshaped, testXpwv_reshaped = reshape_feature_data(trainXpwv, testXpwv)
 
+"""### Custom Model Defination with loss function """
+
+loss_tracker = Mean(name="loss")
+rmse_metric = RootMeanSquaredError(name='rmse')
+
+class CustomModel(Model):
+    def train_step(self, data):
+        x, y = data
+
+        with GradientTape() as tape:
+            y_pred = self(x, training=True)  # Forward pass
+            # Compute our own loss
+            def my_regularizer_loss(y_pred, x_latest, y_true):
+                l = 0.05
+                k = 10
+                y_pred = tf.cast(y_pred, dtype=K.floatx())
+                x_latest = tf.cast(x_latest, dtype=K.floatx())
+                error = tf.subtract(y_pred, x_latest[:,-1,:])
+                abs_error = tf.abs(error)
+                my_k = tf.convert_to_tensor(k, dtype=abs_error.dtype)
+                my_l = tf.convert_to_tensor(l, dtype=abs_error.dtype)
+                sqr_part = tf.pow(tf.abs(my_k*abs_error), 2)
+                # exp_part = tf.exp(-my_k*abs_error)
+                # abs_naive_diff = tf.abs(tf.subtract(y_true, x_latest[:,-1,:]))
+                # my_thresh = tf.convert_to_tensor(thresh, dtype=abs_naive_diff.dtype)
+                # return K.mean(tf.multiply(tf.multiply(l, abs_naive_diff), exp_part))
+                return K.mean(tf.multiply(l, sqr_part))
+
+            # loss = tf.where(
+            #                 loss_switch[0,0] > tf.constant(0.0),
+            #                 huber(y, y_pred) + my_regularizer_loss(y_pred, x, y),
+            #                 huber(y, y_pred)
+            #                 )
+            loss = huber(y, y_pred) + tf.minimum(my_regularizer_loss(y_pred, x, y), 3.0)
+            loss = tf.where (
+                loss > tf.constant(2.0), loss, huber(y, y_pred)
+            )
+
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(loss, trainable_vars)
+
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+
+        # Compute our own metrics
+        loss_tracker.update_state(loss)
+        rmse_metric.update_state(y, y_pred)
+        return {"loss": loss_tracker.result(), "rmse": rmse_metric.result()}
+
+    def test_step(self, data):
+        # Unpack the data
+        x, y = data
+        # Compute predictions
+        y_pred = self(x, training=False)
+        # Update the metrics
+        rmse_metric.update_state(y, y_pred)
+        # Return a dict mapping metric names to current value.
+        # Note that it will include the loss (tracked in self.metrics).
+        return {"rmse": rmse_metric.result()}
+
+    @property
+    def metrics(self):
+        # We list our `Metric` objects here so that `reset_states()` can be
+        # called automatically at the start of each epoch
+        # or at the start of `evaluate()`.
+        # If you don't implement this property, you have to call
+        # `reset_states()` yourself at the time of your choosing.
+        return [loss_tracker, rmse_metric]
+
+import os
+from os import path, mkdir
+
+result_dir_path = './Graphs_and_Results/' + NAME
+model_dir_path = './SavedModels/'+ NAME
+
+if not path.exists(result_dir_path):
+    os.mkdir(result_dir_path)
+
+if not path.exists(model_dir_path):
+    os.mkdir(model_dir_path)
+
 """### LR Schedule Test"""
 
-model = Sequential()
-model.add(LSTM(32, input_shape=(data_history, 1), activation='sigmoid', return_sequences=True))
-model.add(LSTM(32, activation='sigmoid'))
-model.add(Dense(1))
+K.clear_session()
 
-lr_schedule = tf.keras.callbacks.LearningRateScheduler(
+# Construct an instance of CustomModel
+input_layer = Input((data_history, 1))
+lstm_1 = LSTM(32, activation='sigmoid', return_sequences=True)(input_layer)
+lstm_2 = LSTM(32, activation='sigmoid')(lstm_1)
+output_layer = Dense(1)(lstm_2)
+model = CustomModel(input_layer, output_layer)
+
+lr_schedule = LearningRateScheduler(
     lambda epoch: 1e-4 * 10**(epoch / 20))
 
-lr_schedule_json_log = open('./Graphs_and_Results/' + NAME + '_lr_schedule_log.json', mode='wt', buffering=1)
+lr_schedule_json_log = open('./Graphs_and_Results/' + NAME + '/lr_schedule_log.json', mode='wt', buffering=1)
 
 lr_schedule_log = LambdaCallback(
   on_epoch_end = lambda epoch, logs: lr_schedule_json_log.write(
-        json.dumps({'epoch': str(epoch), 'loss': str(logs['loss']), 'lr': str(logs['lr']), 'mean_squared_error': str(logs['mean_squared_error'])}) + '\n'),
+        json.dumps({'epoch': str(epoch), 'loss': str(logs['loss']), 'lr': str(logs['lr']), 'rmse': str(logs['rmse'])}) + '\n'),
     on_train_end=lambda logs: lr_schedule_json_log.close()
 )
 
-checkpointer = ModelCheckpoint(filepath='./SavedModels/'+ NAME +'_lrSchedule_weights.hdf5', monitor="loss", verbose=1, save_best_only=True, save_weights_only=True)
+checkpointer = ModelCheckpoint(filepath='./SavedModels/'+ NAME +'/lrSchedule_weights.hdf5', monitor="loss", verbose=1, save_best_only=True, save_weights_only=True)
 adam = Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, amsgrad=False)
 
-model.compile(loss="huber_loss",
-            optimizer=adam,
-            metrics=["mean_squared_error"])
+model.compile(optimizer="adam")
 print(model.summary())
-
 print("Starting to fit")
 history = model.fit(trainXpwv_reshaped, trainYpwv, epochs=100, batch_size=batch_size, verbose=1, callbacks=[lr_schedule, checkpointer, lr_schedule_log])
 
-model.load_weights('./SavedModels/' + NAME + '_lrSchedule_weights.hdf5')
+model.load_weights('./SavedModels/' + NAME + '/lrSchedule_weights.hdf5')
 
 plt.figure(figsize=(20, 12))
 plt.semilogx(history.history["lr"], history.history["loss"])
@@ -235,38 +323,39 @@ plt.axis([1e-6, 1e+5, 0.1, 55.0])
 plt.xlabel('Learning Rate')
 plt.ylabel('Loss')
 
-plt.savefig('./Graphs_and_Results/' + NAME + '_lrSchedule_test.png', bbox_inches='tight')
+plt.savefig('./Graphs_and_Results/' + NAME + '/lrSchedule_test.png', bbox_inches='tight')
 
 """#### Training the model"""
 
-model = Sequential()
-model.add(LSTM(32, input_shape=(data_history, 1), activation='sigmoid', return_sequences=True))
-model.add(LSTM(32, activation='sigmoid'))
-model.add(Dense(1))
+K.clear_session()
+
+# Construct an instance of CustomModel
+input_layer = Input((data_history, 1))
+lstm_1 = LSTM(32, activation='sigmoid',return_sequences=True)(input_layer)
+lstm_2 = LSTM(32, activation='sigmoid')(lstm_1)
+output_layer = Dense(1)(lstm_2)
+model = CustomModel(input_layer, output_layer)
 
 lr_schedule = LearningRateScheduler(
     lambda epoch: 1e-4 * 10**(epoch / 20) if (1e-4 * 10**(epoch / 20)<1e-2) else 1e-2)
 
-training_json_log = open('./Graphs_and_Results/' + NAME + '_training_log.json', mode='wt', buffering=1)
+training_json_log = open('./Graphs_and_Results/' + NAME + '/training_log.json', mode='wt', buffering=1)
 
 training_log = LambdaCallback(
   on_epoch_end = lambda epoch, logs: training_json_log.write(
-        json.dumps({'epoch': str(epoch), 'loss': str(logs['loss']), 'lr': str(logs['lr']), 'mean_squared_error': str(logs['mean_squared_error'])}) + '\n'),
+        json.dumps({'epoch': str(epoch), 'loss': str(logs['loss']), 'lr': str(logs['lr']), 'rmse': str(logs['rmse'])}) + '\n'),
     on_train_end=lambda logs: training_json_log.close()
 )
 
-checkpointer = ModelCheckpoint(filepath='./SavedModels/'+ NAME +'_train_weights.hdf5', monitor="loss", verbose=1, save_best_only=True, save_weights_only=True)
+checkpointer = ModelCheckpoint(filepath='./SavedModels/'+ NAME +'/train_weights.hdf5', monitor="loss", verbose=1, save_best_only=True, save_weights_only=True)
 adam = Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, amsgrad=False)
 
-model.compile(loss="huber_loss",
-            optimizer=adam,
-            metrics=["mean_squared_error"])
+model.compile(optimizer="adam")
 print(model.summary())
-
-print("Starting to fit")
+print("Starting to fit with loss switch on")
 history = model.fit(trainXpwv_reshaped, trainYpwv, epochs=150, batch_size=batch_size, verbose=1, callbacks=[lr_schedule, checkpointer, training_log])
 
-model.load_weights('./SavedModels/' + NAME + '_train_weights.hdf5')
+model.load_weights('./SavedModels/' + NAME + '/train_weights.hdf5')
 
 # Get training and test loss histories
 training_loss = history.history['loss']
@@ -281,41 +370,62 @@ plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.grid(True)
 
-plt.savefig('./Graphs_and_Results/' + NAME + '_train_loss.png', bbox_inches='tight')
+plt.savefig('./Graphs_and_Results/' + NAME + '/train_loss.png', bbox_inches='tight')
+
+print(training_loss)
 
 """### Evaluating the Model"""
 
+# model = tf.keras.models.load_model('./SavedModels/' + NAME + '/model.hdf5')
 # Evaluate Model
 print('Training Data Evaluation')
 print(model.evaluate(x = trainXpwv_reshaped, y = trainYpwv))
 print('Test Data Evaluation')
 print(model.evaluate(x = testXpwv_reshaped, y = testYpwv))
 
-model.save('./SavedModels/' + NAME + '_model.hdf5')
+model.save('./SavedModels/' + NAME + '/model.hdf5')
 
 """### Model Predictions """
 
-forecast = model.predict([testXpwv_reshaped, testYpwv])
+def naiveForecast(x_data):
+    # Expected Shape of x_data: (number of samples, number of readings per sample, 1)
+    # Shape of forecast: (number of samples, )
+    forecast = x_data[:,-1,0]
+    return forecast
+
+naive_forecast = naiveForecast(testXpwv_reshaped)
+print(naive_forecast.shape)
+forecast = model.predict(testXpwv_reshaped)
 print(forecast.shape)
 
+from sklearn.metrics import mean_squared_error
+from math import sqrt
+
+rms_lstm = sqrt(mean_squared_error(testYpwv, forecast))
+print("Root Mean Squared Error Vanilla wrt LSTM = ", rms_lstm)
+rms_naive = sqrt(mean_squared_error(testYpwv, naive_forecast))
+print("Root Mean Squared Error wrt Naive = ", rms_naive)
+
 plt.figure(figsize=(20, 12))
-time = np.arange(16000,17000)
+time = np.arange(1000,2000)
 plt.plot(time,testYpwv[time])
+plt.plot(time,naive_forecast[time])
 plt.plot(time,forecast[time])
 plt.xlabel("Time")
 plt.ylabel("Value")
-plt.legend(("Actual Data","Forecasted Data"))
+plt.legend(("Actual Data", "Naive Forecast", "Forecasted Data"))
 plt.grid(True)
 
-plt.savefig('./Graphs_and_Results/' + NAME + '_predictions.png', bbox_inches='tight')
+plt.savefig('./Graphs_and_Results/' + NAME + '/predictions.png', bbox_inches='tight')
 
 plt.figure(figsize=(20, 12))
-time = np.arange(16520,16600)
+time = np.arange(1250,1400)
 plt.plot(time,testYpwv[time])
+plt.plot(time,naive_forecast[time])
 plt.plot(time,forecast[time])
 plt.xlabel("Time")
 plt.ylabel("Value")
-plt.legend(("Actual Data","Forecasted Data"))
+plt.legend(("Actual Data", "Naive Forecast", "Forecasted Data"))
 plt.grid(True)
 
-plt.savefig('./Graphs_and_Results/' + NAME + '_zoomed_predictions.png', bbox_inches='tight')
+plt.savefig('./Graphs_and_Results/' + NAME + '/zoomed_predictions.png', bbox_inches='tight')
