@@ -1,8 +1,8 @@
 # Improving-Training-Efficiency-of-LSTM-for-PWV-Forecasting
 
-This repository contains the work for "Improving Training Efficiency of LSTM for PWV Forecasting" research project.
+With the spirit of reproducible research, this repository contains all the codes required to produce the results in the manuscript:
 
-`Note: my work started before I created this repository`
+> Jain, M., Yadav, P., Wu, J. and Dev, S.(2021). "Improving Training Efficiency of LSTMs while Forecasting Precipitable Water Vapours." Progress in Electromagnetic Research Symposium, Hangzhou, China. 2021.
 
 # Dependencies
 
