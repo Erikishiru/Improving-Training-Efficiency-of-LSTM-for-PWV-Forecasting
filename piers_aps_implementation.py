@@ -44,7 +44,7 @@ def load_obj(name):
   with open(name + '.pkl', 'rb') as f:
     return pickle.load(f)
 
-data_file = '~/Documents/piers/data/pwvComplete5yr'
+data_file = './data/pwvComplete5yr'
 pwvComplete = load_obj(data_file) # Dictionary with year numbers as keys and numpy arrays ([day, hour, min, pwv]) as values
 
 """**Pre-process Data**"""
@@ -208,7 +208,7 @@ model.add(Dense(1))
 lr_schedule = tf.keras.callbacks.LearningRateScheduler(
     lambda epoch: 1e-4 * 10**(epoch / 20))
 
-lr_schedule_json_log = open('~/Documents/piers/Graphs_and_Results/' + NAME + '_lr_schedule_log.json', mode='wt', buffering=1)
+lr_schedule_json_log = open('./Graphs_and_Results/' + NAME + '_lr_schedule_log.json', mode='wt', buffering=1)
 
 lr_schedule_log = LambdaCallback(
   on_epoch_end = lambda epoch, logs: lr_schedule_json_log.write(
@@ -216,7 +216,7 @@ lr_schedule_log = LambdaCallback(
     on_train_end=lambda logs: lr_schedule_json_log.close()
 )
 
-checkpointer = ModelCheckpoint(filepath='~/Documents/piers/SavedModels/'+ NAME +'_lrSchedule_weights.hdf5', monitor="loss", verbose=1, save_best_only=True, save_weights_only=True)
+checkpointer = ModelCheckpoint(filepath='./SavedModels/'+ NAME +'_lrSchedule_weights.hdf5', monitor="loss", verbose=1, save_best_only=True, save_weights_only=True)
 adam = Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, amsgrad=False)
 
 model.compile(loss="huber_loss",
@@ -227,7 +227,7 @@ print(model.summary())
 print("Starting to fit")
 history = model.fit(trainXpwv_reshaped, trainYpwv, epochs=100, batch_size=batch_size, verbose=1, callbacks=[lr_schedule, checkpointer, lr_schedule_log])
 
-model.load_weights('~/Documents/piers/SavedModels/' + NAME + '_lrSchedule_weights.hdf5')
+model.load_weights('./SavedModels/' + NAME + '_lrSchedule_weights.hdf5')
 
 plt.figure(figsize=(20, 12))
 plt.semilogx(history.history["lr"], history.history["loss"])
@@ -235,7 +235,7 @@ plt.axis([1e-6, 1e+5, 0.1, 55.0])
 plt.xlabel('Learning Rate')
 plt.ylabel('Loss')
 
-plt.savefig('~/Documents/piers/Graphs_and_Results/' + NAME + '_lrSchedule_test.png', bbox_inches='tight')
+plt.savefig('./Graphs_and_Results/' + NAME + '_lrSchedule_test.png', bbox_inches='tight')
 
 """#### Training the model"""
 
@@ -247,7 +247,7 @@ model.add(Dense(1))
 lr_schedule = LearningRateScheduler(
     lambda epoch: 1e-4 * 10**(epoch / 20) if (1e-4 * 10**(epoch / 20)<1e-2) else 1e-2)
 
-training_json_log = open('~/Documents/piers/Graphs_and_Results/' + NAME + '_training_log.json', mode='wt', buffering=1)
+training_json_log = open('./Graphs_and_Results/' + NAME + '_training_log.json', mode='wt', buffering=1)
 
 training_log = LambdaCallback(
   on_epoch_end = lambda epoch, logs: training_json_log.write(
@@ -255,7 +255,7 @@ training_log = LambdaCallback(
     on_train_end=lambda logs: training_json_log.close()
 )
 
-checkpointer = ModelCheckpoint(filepath='~/Documents/piers/SavedModels/'+ NAME +'_train_weights.hdf5', monitor="loss", verbose=1, save_best_only=True, save_weights_only=True)
+checkpointer = ModelCheckpoint(filepath='./SavedModels/'+ NAME +'_train_weights.hdf5', monitor="loss", verbose=1, save_best_only=True, save_weights_only=True)
 adam = Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, amsgrad=False)
 
 model.compile(loss="huber_loss",
@@ -266,7 +266,7 @@ print(model.summary())
 print("Starting to fit")
 history = model.fit(trainXpwv_reshaped, trainYpwv, epochs=150, batch_size=batch_size, verbose=1, callbacks=[lr_schedule, checkpointer, training_log])
 
-model.load_weights('~/Documents/piers/SavedModels/' + NAME + '_train_weights.hdf5')
+model.load_weights('./SavedModels/' + NAME + '_train_weights.hdf5')
 
 # Get training and test loss histories
 training_loss = history.history['loss']
@@ -281,7 +281,7 @@ plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.grid(True)
 
-plt.savefig('~/Documents/piers/Graphs_and_Results/' + NAME + '_train_loss.png', bbox_inches='tight')
+plt.savefig('./Graphs_and_Results/' + NAME + '_train_loss.png', bbox_inches='tight')
 
 """### Evaluating the Model"""
 
@@ -291,7 +291,7 @@ print(model.evaluate(x = trainXpwv_reshaped, y = trainYpwv))
 print('Test Data Evaluation')
 print(model.evaluate(x = testXpwv_reshaped, y = testYpwv))
 
-model.save('~/Documents/piers/SavedModels/' + NAME + '_model.hdf5')
+model.save('./SavedModels/' + NAME + '_model.hdf5')
 
 """### Model Predictions """
 
@@ -307,7 +307,7 @@ plt.ylabel("Value")
 plt.legend(("Actual Data","Forecasted Data"))
 plt.grid(True)
 
-plt.savefig('~/Documents/piers/Graphs_and_Results/' + NAME + '_predictions.png', bbox_inches='tight')
+plt.savefig('./Graphs_and_Results/' + NAME + '_predictions.png', bbox_inches='tight')
 
 plt.figure(figsize=(20, 12))
 time = np.arange(16520,16600)
@@ -318,4 +318,4 @@ plt.ylabel("Value")
 plt.legend(("Actual Data","Forecasted Data"))
 plt.grid(True)
 
-plt.savefig('~/Documents/piers/Graphs_and_Results/' + NAME + '_zoomed_predictions.png', bbox_inches='tight')
+plt.savefig('./Graphs_and_Results/' + NAME + '_zoomed_predictions.png', bbox_inches='tight')
